@@ -1,0 +1,218 @@
+select * from olymbics_history;
+select * from olymbics_history_noc_region;
+/*counting number of records*/
+select count(*)from olymbics_history;
+select count(*)from olymbics_history_noc_region;
+/*  1 count of distinct olymbic games held*/
+select count(distinct games) from olymbics_history;
+/*2 list of all olymbic games held*/
+select games,year,season,city from olymbics_history order by year;
+/*3 total no.of nations particiapted in each olymbics game*/
+select oh.games,count(distinct nr.region) as total_countries from olymbics_history oh join 
+olymbics_history_noc_region nr on oh.noc=nr.noc 
+group by oh.games
+order by oh.games;
+/*4query to return the olymbic games which had the highest participating countries and the lowest*/
+ select max(highest_countries) as highest_countries,min(lowest_countries ) as lowest_countries from 
+(select concat(oh.games,count(distinct nr.region)) as highest_countries,concat(oh.games,count(distinct nr.region)) as lowest_countries from olymbics_history oh join 
+olymbics_history_noc_region nr on oh.noc=nr.noc 
+group by oh.games
+order by oh.games) s;
+/* 5 query to return the list of nation,been a part of all olympics games*/
+with tot_games as
+              (select count(distinct games) as total_games
+              from olymbics_history),
+          countries as
+              (select games, nr.region as country
+              from olymbics_history oh
+              join olymbics_history_noc_region nr ON nr.noc=oh.noc
+              group by games, nr.region),
+          countries_participated as
+              (select country, count(1) as total_participated_games
+              from countries
+              group by country)
+      select *
+      from countries_participated cp
+      join tot_games tg on tg.total_games = cp.total_participated_games
+      order by 1;
+/* 6 query to return the list of sports,been a part of every summer olympics games*/
+with t1 as (select s.sport,count (s.games) as no_of_games from 
+(select distinct sport,games from olymbics_history where season = 'Summer') s
+group by s.sport
+order by sport),
+t2 as (select count(distinct games) as total_summer_games from olymbics_history where season = 'Summer')
+select * from t1 join t2 on t1.no_of_games=t2.total_summer_games; 
+/* 7 list of sports played only once in the olymbics*/
+with t1 as(select distinct games,sport from olymbics_history),
+t2 as (select distinct sport,count(1) as no_of_games from t1 group by sport)
+select t2.*, t1.games from t2
+join t1 on t1.sport = t2.sport
+where t2.no_of_games = 1
+order by t1.sport;
+/*8 total no of sports played in each olymbics*/
+select count(distinct sport),games from olymbics_history group by games order by count desc;
+/*9 oldest athelete to win a gold medal*/
+Select *,rank() over(order by age desc )as rnk from(select name,sex,event,cast(case when age='NA'then '0' else age end as int) as age,team,games,city,medal,year,season 
+from olymbics_history where medal = 'Gold')s limit 2;
+/*10. Find the Ratio of male and female athletes participated in all olympic games.*/
+    with t1 as
+        	(select sex, count(1) as cnt
+        	from olymbics_history
+        	group by sex),
+        t2 as
+        	(select *, row_number() over(order by cnt) as rn
+        	 from t1),
+        min_cnt as
+        	(select cnt from t2	where rn = 1),
+        max_cnt as
+        	(select cnt from t2	where rn = 2)
+    select concat('1 : ', round(max_cnt.cnt::decimal/min_cnt.cnt, 2)) as ratio
+    from min_cnt, max_cnt;
+/*11 top 5 atheletes won most gold medLS*/
+with t1 as (select name, count(1) as total_medals from olymbics_history where medal = 'Gold' group by name order by count(1) desc),
+t2 as (select * ,dense_rank() over(order by total_medals desc) as rnk 
+from t1)
+select * from t2 where rnk <= 5;
+/* 12 Top 5 atheletes won most of medals(gold/silver/bronze)*/
+with t1 as (select name, count(1) as total_medals from olymbics_history where medal IN ('Gold','Silver','Bronze')
+			group by name order by count(1) desc),
+t2 as (select * ,dense_rank() over(order by total_medals desc) as rnk 
+from t1)
+select * from t2 where rnk <= 5;
+/*13 top 5 most successful countries in olymbics which is defined by no.of medals won*/
+with t1 as (select nr.region, count(1) as total_medals from olymbics_history oh join olymbics_history_noc_region nr
+			on oh.noc=nr.noc where medal IN ('Gold','Silver','Bronze')
+			group by nr.region order by count(1) desc),
+t2 as (select * ,dense_rank() over(order by total_medals desc) as rnk 
+from t1)
+select * from t2 where rnk <= 5;
+/* 14 list down total gold,silver and bronze medals won by each country*/
+select nr.region as country ,medal,count(1) as total_medals
+from olymbics_history as oh join olymbics_history_noc_region as nr on oh.noc = nr.noc
+where medal <> 'NA'
+group by nr.region,medal
+order by nr.region,medal;
+select country,coalesce(gold,0) as gold,
+coalesce(silver,0) as silver,coalesce(bronze,0) as bronze
+from crosstab ('select nr.region as country ,medal,count(1) as total_medals
+                      from olymbics_history as oh join olymbics_history_noc_region as nr on oh.noc = nr.noc
+                      where medal <> ''NA'' group by nr.region,medal order by nr.region,medal',
+                      'values(''Bronze''),(''Gold''),(''Silver'')')
+                   as result(country varchar,bronze bigint,gold bigint,silver bigint)
+order by gold desc,silver desc,bronze desc;
+/*15 total gold,silver,bronze medals won by each country corresponding to each olymbics*/
+ SELECT substring(games,1,position(' - ' in games) - 1) as games
+        , substring(games,position(' - ' in games) + 3) as country
+        , coalesce(gold, 0) as gold
+        , coalesce(silver, 0) as silver
+        , coalesce(bronze, 0) as bronze
+    FROM CROSSTAB('SELECT concat(games, '' - '', nr.region) as games
+                , medal
+                , count(1) as total_medals
+                FROM olymbics_history oh
+                JOIN olymbics_history_noc_region nr ON nr.noc = oh.noc
+                where medal <> ''NA''
+                GROUP BY games,nr.region,medal
+                order BY games,medal',
+            'values (''Bronze''), (''Gold''), (''Silver'')')
+    AS FINAL_RESULT(games text, bronze bigint, gold bigint, silver bigint);
+/*16 query to display for each olymbic games,which country won the highest gold,silver and bronze medals*/
+with temp as 
+(SELECT substring(games_country,1,position(' - ' in games_country) - 1) as games
+        , substring(games_country,position(' - ' in games_country) + 3) as country
+        , coalesce(gold, 0) as gold
+        , coalesce(silver, 0) as silver
+        , coalesce(bronze, 0) as bronze
+    FROM CROSSTAB('SELECT concat(games, '' - '', nr.region) as games
+                , medal
+                , count(1) as total_medals
+                FROM olymbics_history oh
+                JOIN olymbics_history_noc_region nr ON nr.noc = oh.noc
+                where medal <> ''NA''
+                GROUP BY games,nr.region,medal
+                order BY games,medal',
+            'values (''Bronze''), (''Gold''), (''Silver'')')
+    AS FINAL_RESULT(games_country varchar, bronze bigint, gold bigint, silver bigint)
+			  order by games_country)
+select distinct games,
+concat(first_value(country) over(partition by games order by gold desc),'-',
+first_value(gold) over(partition by games order by gold desc)) as gold
+,concat(first_value(country) over(partition by games order by silver desc),'-',
+first_value(silver) over(partition by games order by silver desc)) as silver
+,concat(first_value(country) over(partition by games order by bronze desc),'-',
+first_value(bronze) over(partition by games order by bronze desc)) as bronze
+from temp order by games;
+/* 17 Identify which country won most gold,most silver,most bronze medals and the most medals in each olymbics games*/
+ with temp as
+    	(SELECT substring(games, 1, position(' - ' in games) - 1) as games
+    		, substring(games, position(' - ' in games) + 3) as country
+    		, coalesce(gold, 0) as gold
+    		, coalesce(silver, 0) as silver
+    		, coalesce(bronze, 0) as bronze
+    	FROM CROSSTAB('SELECT concat(games, '' - '', nr.region) as games
+    					, medal
+    					, count(1) as total_medals
+    				  FROM olymbics_history oh
+    				  JOIN olymbics_history_noc_region nr ON nr.noc = oh.noc
+    				  where medal <> ''NA''
+    				  GROUP BY games,nr.region,medal
+    				  order BY games,medal',
+                  'values (''Bronze''), (''Gold''), (''Silver'')')
+    			   AS FINAL_RESULT(games text, bronze bigint, gold bigint, silver bigint)),
+    	tot_medals as
+    		(SELECT games, nr.region as country, count(1) as total_medals
+    		FROM olymbics_history oh
+    		JOIN olymbics_history_noc_region nr ON nr.noc = oh.noc
+    		where medal <> 'NA'
+    		GROUP BY games,nr.region order BY 1, 2)
+    select distinct t.games
+    	, concat(first_value(t.country) over(partition by t.games order by gold desc)
+    			, ' - '
+    			, first_value(t.gold) over(partition by t.games order by gold desc)) as Max_Gold
+    	, concat(first_value(t.country) over(partition by t.games order by silver desc)
+    			, ' - '
+    			, first_value(t.silver) over(partition by t.games order by silver desc)) as Max_Silver
+    	, concat(first_value(t.country) over(partition by t.games order by bronze desc)
+    			, ' - '
+    			, first_value(t.bronze) over(partition by t.games order by bronze desc)) as Max_Bronze
+    	, concat(first_value(tm.country) over (partition by tm.games order by total_medals desc nulls last)
+    			, ' - '
+    			, first_value(tm.total_medals) over(partition by tm.games order by total_medals desc nulls last)) as Max_Medals
+    from temp t
+    join tot_medals tm on tm.games = t.games and tm.country = t.country
+    order by games;
+/* 18 country have never won gold medal but have won silver/bronze medals*/
+ select * from (
+    	SELECT country, coalesce(gold,0) as gold, coalesce(silver,0) as silver, coalesce(bronze,0) as bronze
+    		FROM CROSSTAB('SELECT nr.region as country
+    					, medal, count(1) as total_medals
+    					FROM OLYMBICS_HISTORY oh
+    					JOIN OLYMBICS_HISTORY_NOC_REGION nr ON nr.noc=oh.noc
+    					where medal <> ''NA''
+    					GROUP BY nr.region,medal order BY nr.region,medal',
+                    'values (''Bronze''), (''Gold''), (''Silver'')')
+    		AS FINAL_RESULT(country varchar,
+    		bronze bigint, gold bigint, silver bigint)) x
+    where gold = 0 and (silver > 0 or bronze > 0)
+    order by gold desc nulls last, silver desc nulls last, bronze desc nulls last;
+/* 19 query to return the sport which has won India the highest no.of medals*/
+with t1 as
+        	(select sport, count(1) as total_medals
+        	from olymbics_history
+        	where medal <> 'NA'
+        	and team = 'India'
+        	group by sport
+        	order by total_medals desc),
+        t2 as
+        	(select *, rank() over(order by total_medals desc) as rnk
+        	from t1)
+    select sport, total_medals
+    from t2
+    where rnk = 1;
+/* 20 query to fetch details of all olymbics games where India won medals in hockey*/
+ select team, sport, games, count(1) as total_medals
+    from olymbics_history
+    where medal <> 'NA'
+    and team = 'India' and sport = 'Hockey'
+    group by team, sport, games
+    order by total_medals desc;
